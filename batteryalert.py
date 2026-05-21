@@ -17,7 +17,7 @@ import win32con
 import win32gui
 import win32api
 import threading
-
+import shutil
 # ---------------- SETTINGS ----------------
 LOW_BATTERY = 20
 FULL_BATTERY = 100
@@ -47,18 +47,83 @@ def check_charger_on_shutdown():
 
 
 def add_shortcut_to_startup():
-    """Creates shortcut in Windows Startup folder so app runs at boot"""
-    startup = winshell.startup()
-    shortcut_path = os.path.join(startup, "BatteryAlert.lnk")
+    """
+    Copy EXE to AppData and create startup shortcut.
+    Removes duplicate EXEs/shortcuts automatically.
+    """
 
-    if not os.path.exists(shortcut_path):
+    # ---------------- APPDATA LOCATION ----------------
+    appdata_dir = os.path.join(
+        os.getenv("LOCALAPPDATA"),
+        "BatteryAlert"
+    )
+
+    os.makedirs(appdata_dir, exist_ok=True)
+
+    # ---------------- SOURCE EXE ----------------
+    current_exe = sys.executable
+
+    # ---------------- DESTINATION EXE ----------------
+    target_exe = os.path.join(
+        appdata_dir,
+        "batteryalert.exe"
+    )
+
+    # ---------------- DELETE OLD DUPLICATES ----------------
+    try:
+        if os.path.exists(target_exe):
+
+            # If old exe exists and is different
+            if os.path.abspath(current_exe) != os.path.abspath(target_exe):
+                os.remove(target_exe)
+
+    except Exception as e:
+        print("Could not remove old exe:", e)
+
+    # ---------------- COPY EXE ----------------
+    try:
+        if os.path.abspath(current_exe) != os.path.abspath(target_exe):
+            shutil.copy2(current_exe, target_exe)
+            print("✅ EXE copied to AppData")
+
+    except Exception as e:
+        print("Copy failed:", e)
+        return
+
+    # ---------------- STARTUP FOLDER ----------------
+    startup = winshell.startup()
+
+    shortcut_path = os.path.join(
+        startup,
+        "BatteryAlert.lnk"
+    )
+
+    # ---------------- REMOVE OLD SHORTCUT ----------------
+    try:
+        if os.path.exists(shortcut_path):
+            os.remove(shortcut_path)
+
+    except Exception as e:
+        print("Could not remove old shortcut:", e)
+
+    # ---------------- CREATE NEW SHORTCUT ----------------
+    try:
         shell = Dispatch("WScript.Shell")
+
         shortcut = shell.CreateShortCut(shortcut_path)
-        shortcut.Targetpath = sys.argv[0]  # exe path
-        shortcut.WorkingDirectory = os.path.dirname(sys.argv[0])
-        shortcut.IconLocation = sys.argv[0]
+
+        shortcut.Targetpath = target_exe
+
+        shortcut.WorkingDirectory = appdata_dir
+
+        shortcut.IconLocation = target_exe
+
         shortcut.save()
-        print("✅ Added to startup")
+
+        print("✅ Startup shortcut created")
+
+    except Exception as e:
+        print("Shortcut creation failed:", e)
 
 
 def ensure_autostart():
@@ -103,6 +168,7 @@ class WindowsShutdownHandler:
 
 
 def main():
+    time.sleep(5)
     ensure_autostart()
 
     # Initial "running" notification
